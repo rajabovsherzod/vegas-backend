@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1764523198017,
+      "tag": "0000_tidy_karen_page",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1764528219858,
+      "tag": "0001_useful_cassandra_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1764531592970,
+      "tag": "0002_flaky_doctor_faustus",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1764672615409,
+      "tag": "0003_open_reaper",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1764680721484,
+      "tag": "0004_worthless_raza",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1764914629231,
+      "tag": "0005_minor_black_widow",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1764927827933,
+      "tag": "0006_old_jack_power",
+      "breakpoints": true
+    }
+  ]
+}
