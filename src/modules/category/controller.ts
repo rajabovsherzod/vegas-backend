@@ -5,10 +5,11 @@ import ApiResponse from "@/utils/ApiResponse";
 
 // 1. GET ALL
 export const getCategories = asyncHandler(async (req: Request, res: Response) => {
+  console.log("📦 [Categories] Query params:", req.query); // DEBUG
   const result = await categoryService.getAll(req.query);
+  console.log("📦 [Categories] Result:", result); // DEBUG
   res.status(200).json(new ApiResponse(200, result, "Kategoriyalar yuklandi"));
 });
-
 // 2. GET BY ID (Routerda talab qilingan funksiya)
 export const getCategoryById = asyncHandler(async (req: Request, res: Response) => {
     // Service.getById() funksiyasi kerak bo'ladi (qo'shimcha funksiya deb hisoblaymiz)

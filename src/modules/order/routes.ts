@@ -4,66 +4,52 @@ import {
   getOrders, 
   getOrderById, 
   updateOrder, 
-  updateOrderStatus, 
-  markAsPrinted,
-  refundOrder // 🔥 Yangi controllerni import qildik
+  updateOrderStatus,
+  markAsPrinted 
 } from "./controller";
-import { validate } from "../../middlewares/validate";
-import { sanitizeInput } from "../../middlewares/sanitize";
-import { createOrderSchema, updateOrderSchema, updateOrderStatusSchema } from "./validation";
-import { protect, authorize } from "../../middlewares/auth";
+import { protect, authorize } from "@/middlewares/auth";
+import { validate } from "@/middlewares/validate";
+import { sanitizeInput } from "@/middlewares/sanitize";
 
 const router = Router();
 
-// 1. Hamma so'rovlar uchun himoya (Login qilingan bo'lishi shart)
 router.use(protect);
 
-// 2. Global marshrutlar
-router.route("/")
-  // GET: Hamma orderlar (Controller ichida user roliga qarab filterlanadi)
-  .get(authorize('owner', 'cashier', 'seller', 'admin'), getOrders)
-  // POST: Yangi order yaratish
-  .post(
-    sanitizeInput({ skipFields: ['password'] }),
-    validate(createOrderSchema),
-    createOrder
-  );
+// GET /api/v1/orders - Barcha buyurtmalar
+router.get("/", authorize("admin", "owner", "cashier", "seller"), getOrders);
 
-// 3. Maxsus amallar (ID bilan) - Bularni ID bo'yicha umumiy marshrutdan oldin yozgan ma'qul (ba'zan konflikt bo'lmasligi uchun)
+// POST /api/v1/orders - Yangi buyurtma yaratish
+router.post(
+  "/",
+  authorize("admin", "owner", "cashier", "seller"),
+  sanitizeInput(),
+  createOrder
+);
 
-// Status o'zgartirish
-router.route("/:id/status")
-  .patch(
-    authorize('owner', 'cashier', 'admin'),
-    sanitizeInput({ skipFields: ['password'] }),
-    validate(updateOrderStatusSchema),
-    updateOrderStatus
-  );
+// GET /api/v1/orders/:id - Bitta buyurtma
+router.get("/:id", authorize("admin", "owner", "cashier", "seller"), getOrderById);
 
-// Chek chiqarilganini belgilash
-router.route("/:id/printed")
-  .patch(
-    authorize('owner', 'cashier', 'seller', 'admin'),
-    markAsPrinted
-  );
+// PATCH /api/v1/orders/:id - Buyurtmani tahrirlash
+router.patch(
+  "/:id",
+  authorize("admin", "owner", "cashier"),
+  sanitizeInput(),
+  updateOrder
+);
 
-// 🔥 QAYTARISH (REFUND) MARSHRUTI
-router.route("/:id/refund")
-  .post(
-    authorize('owner', 'admin'), // Faqat Owner va Admin qaytara oladi
-    refundOrder
-  );
+// PATCH /api/v1/orders/:id/status - Status o'zgartirish
+router.patch(
+  "/:id/status",
+  authorize("admin", "owner", "cashier"),
+  sanitizeInput(),
+  updateOrderStatus
+);
 
-// 4. ID bo'yicha umumiy marshrutlar
-router.route("/:id")
-  // GET: Bitta orderni olish
-  .get(authorize('owner', 'admin', 'cashier', 'seller'), getOrderById)
-  // PATCH: Tahrirlash
-  .patch(
-    authorize('owner', 'admin', 'cashier', 'seller'),
-    sanitizeInput({ skipFields: ['password'] }),
-    validate(updateOrderSchema),
-    updateOrder
-  );
+// PATCH /api/v1/orders/:id/printed - Chek chiqarildi
+router.patch(
+  "/:id/printed",
+  authorize("admin", "owner", "cashier", "seller"),
+  markAsPrinted
+);
 
 export default router;

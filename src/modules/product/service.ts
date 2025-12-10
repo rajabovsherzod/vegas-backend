@@ -1,47 +1,58 @@
 import { db } from "@/db";
-import { products, stockHistory } from "@/db/schema";
-import { eq, desc, ilike, or, sql, SQL, and } from "drizzle-orm";
+import { products, priceHistory, stockHistory } from "@/db/schema";
+import { eq, desc, ilike, or, and, sql, SQL } from "drizzle-orm";
 import ApiError from "@/utils/ApiError";
-import logger from "@/utils/logger";
-import { getIO } from "@/socket"; 
+import { getIO } from "@/socket";
 import { CreateProductInput, UpdateProductInput, SetDiscountInput } from "./validation";
+
+interface GetAllProductsQuery {
+  search?: string;
+  limit?: string;
+  page?: string;
+  categoryId?: string;
+  showHidden?: string;
+}
 
 export const productService = {
   // 1. GET ALL
-  getAll: async (query: any) => {
+  getAll: async (query: GetAllProductsQuery) => {
     const { search, limit = "20", page = "1", categoryId, showHidden } = query;
     const limitNum = Number(limit);
-    const offsetNum = (Number(page) - 1) * limitNum;
+    const pageNum = Number(page);
+    const offsetNum = (pageNum - 1) * limitNum;
 
-    const conditions: SQL[] = [];
-    conditions.push(eq(products.isDeleted, false));
+    const conditions: (SQL | undefined)[] = [
+      eq(products.isDeleted, false)
+    ];
 
     if (showHidden !== 'true') {
       conditions.push(eq(products.isActive, true));
     }
 
     if (search) {
-      conditions.push(or(ilike(products.name, `%${search}%`), ilike(products.barcode, `%${search}%`))!);
+      conditions.push(or(ilike(products.name, `%${search}%`), ilike(products.barcode, `%${search}%`)));
     }
     if (categoryId && categoryId !== "all") {
       conditions.push(eq(products.categoryId, Number(categoryId)));
     }
 
+    const finalConditions = and(...conditions.filter((c): c is SQL => !!c));
+
     const data = await db.query.products.findMany({
-      where: (table, { and }) => and(...conditions),
+      where: finalConditions,
       limit: limitNum,
       offset: offsetNum,
       orderBy: desc(products.createdAt),
-      with: { category: true },
+      with: { category: true }
     });
 
-    const totalRes = await db.select({ count: sql<number>`count(*)` }).from(products).where(and(...conditions));
+    const totalRes = await db.select({ count: sql<number>`count(*)` }).from(products).where(finalConditions);
     const total = Number(totalRes[0].count);
 
     return {
       products: data,
       pagination: {
-        page: Number(page),
+        page: pageNum,
         limit: limitNum,
         total,
         totalPages: Math.ceil(total / limitNum),
@@ -49,206 +60,205 @@ export const productService = {
     };
   },
 
-  // 2. CREATE (TRANSACTION BILAN)
-  create: async (payload: CreateProductInput, userId?: number) => {
+  // 2. CREATE
+  create: async (userId: number, payload: CreateProductInput) => {
     return await db.transaction(async (tx) => {
-      // Barcode tekshirish
-      const existing = await tx.query.products.findFirst({
-        where: eq(products.barcode, payload.barcode),
-      });
-      if (existing) throw new ApiError(400, "Bu shtrix-kod allaqachon mavjud!");
+      if (payload.barcode) {
+        const existing = await tx.query.products.findFirst({ where: eq(products.barcode, payload.barcode) });
+        if (existing) throw new ApiError(409, "Bu barkod allaqachon mavjud!");
+      }
 
-      // Mahsulot yaratish
       const [newProduct] = await tx.insert(products).values({
         ...payload,
         price: String(payload.price),
-        stock: String(payload.stock),
-        originalPrice: payload.originalPrice ? String(payload.originalPrice) : null,
+        stock: String(payload.stock || 0),
+        originalPrice: payload.originalPrice ? String(payload.originalPrice) : String(payload.price),
+        discountPrice: payload.discountPrice ? String(payload.discountPrice) : "0",
         categoryId: payload.categoryId ? Number(payload.categoryId) : null,
+        currency: payload.currency as "UZS" | "USD",
       }).returning();
 
-      // Tarixga yozish (Agar boshlang'ich soni bo'lsa)
       if (Number(payload.stock) > 0) {
         await tx.insert(stockHistory).values({
           productId: newProduct.id,
           quantity: String(payload.stock),
           oldStock: "0",
           newStock: String(payload.stock),
-          newPrice: payload.originalPrice ? String(payload.originalPrice) : null,
-          addedBy: userId || null,
-          note: "Dastlabki kirim",
+          addedBy: userId,
+          note: "Boshlang'ich kirim",
         });
       }
 
-      logger.info(`Mahsulot yaratildi. ID: ${newProduct.id}`);
-      try {
-        getIO().emit("new_product", newProduct);
-      } catch (e) { console.error("Socket error:", e); }
-
+      try { getIO().emit("product_created", newProduct); } catch (e) { /* ignore */ }
       return newProduct;
     });
   },
 
-  // 3. UPDATE (Stock o'zgarishi taqiqlangan)
-  update: async (id: number, payload: UpdateProductInput) => {
-    if (payload.barcode) {
-      const existing = await db.query.products.findFirst({
-        where: eq(products.barcode, payload.barcode),
-      });
-      if (existing && existing.id !== id) {
-        throw new ApiError(400, "Bu shtrix-kod boshqa mahsulotda mavjud!");
+  // 3. UPDATE (Tuzatildi: Type xatoligi yo'q qilindi)
+  update: async (id: number, userId: number, payload: UpdateProductInput) => {
+    return await db.transaction(async (tx) => {
+      const product = await tx.query.products.findFirst({ where: eq(products.id, id) });
+      if (!product) throw new ApiError(404, "Mahsulot topilmadi");
+
+      // Narx tarixini saqlash
+      if (payload.price && Number(payload.price) !== Number(product.price)) {
+         await tx.insert(priceHistory).values({
+            productId: id,
+            oldPrice: product.price,
+            newPrice: String(payload.price),
+            currency: product.currency,
+            changedBy: userId
+         });
       }
-    }
 
-    const updateData: any = { ...payload };
-    delete updateData.stock; // 🔥 Stock faqat Add Stock orqali o'zgaradi
+      // Payload dan kelgan ma'lumotlarni Drizzle formatiga (string) o'tkazamiz
+      const updateData: Partial<typeof products.$inferInsert> = {};
 
-    if (payload.price !== undefined) updateData.price = String(payload.price);
-    if (payload.originalPrice !== undefined) updateData.originalPrice = String(payload.originalPrice);
-    
-    updateData.updatedAt = new Date();
+      if (payload.name) updateData.name = payload.name;
+      if (payload.barcode !== undefined) updateData.barcode = payload.barcode; // null bo'lishi mumkin
+      if (payload.unit) updateData.unit = payload.unit;
+      if (payload.categoryId) updateData.categoryId = Number(payload.categoryId);
+      if (payload.currency) updateData.currency = payload.currency as "UZS" | "USD";
+      if (payload.image) updateData.image = payload.image;
+      
+      // Raqamli qiymatlar stringga o'tishi shart
+      if (payload.price !== undefined) updateData.price = String(payload.price);
+      if (payload.originalPrice !== undefined) updateData.originalPrice = String(payload.originalPrice);
+      if (payload.discountPrice !== undefined) updateData.discountPrice = String(payload.discountPrice);
+      
+      updateData.updatedAt = new Date();
 
-    const [updatedProduct] = await db
-      .update(products)
-      .set(updateData)
-      .where(and(eq(products.id, id), eq(products.isDeleted, false)))
-      .returning();
+      const [updatedProduct] = await tx.update(products)
+        .set(updateData)
+        .where(eq(products.id, id))
+        .returning();
 
-    if (!updatedProduct) throw new ApiError(404, "Mahsulot topilmadi");
-
-    logger.info(`Mahsulot yangilandi. ID: ${id}`);
-    try {
-      getIO().emit("product_update", updatedProduct);
-    } catch (e) { console.error("Socket error:", e); }
-
-    return updatedProduct;
+      try { getIO().emit("product_updated", updatedProduct); } catch (e) { /* ignore */ }
+      return updatedProduct;
+    });
   },
 
+  // 4. SET DISCOUNT
   setDiscount: async (id: number, payload: SetDiscountInput) => {
-    const product = await db.query.products.findFirst({
-      where: eq(products.id, id),
-    });
-
+    const product = await db.query.products.findFirst({ where: eq(products.id, id) });
     if (!product) throw new ApiError(404, "Mahsulot topilmadi");
 
     const currentPrice = Number(product.price);
     let newDiscountPrice = 0;
 
-    // A) Agar foiz berilgan bo'lsa (masalan 10%)
     if (payload.percent) {
-      const discountAmount = currentPrice * (payload.percent / 100);
-      newDiscountPrice = currentPrice - discountAmount;
-    } 
-    // B) Agar aniq narx berilgan bo'lsa (masalan 9000)
-    else if (payload.fixedPrice) {
+      newDiscountPrice = currentPrice - (currentPrice * (payload.percent / 100));
+    } else if (payload.fixedPrice) {
       newDiscountPrice = payload.fixedPrice;
     }
 
-    // Xavfsizlik: Chegirma narxi asl narxdan qimmat bo'lib ketmasin
-    if (newDiscountPrice >= currentPrice) {
-      throw new ApiError(400, "Chegirma narxi asl narxdan past bo'lishi kerak");
-    }
+    if (newDiscountPrice >= currentPrice) throw new ApiError(400, "Chegirma narxi asl narxdan past bo'lishi kerak");
 
-    const [updatedProduct] = await db
-      .update(products)
-      .set({
+    const [updatedProduct] = await db.update(products).set({
         discountPrice: String(newDiscountPrice),
         discountStart: payload.startDate ? new Date(payload.startDate) : new Date(),
         discountEnd: new Date(payload.endDate),
         updatedAt: new Date(),
-      })
-      .where(eq(products.id, id))
-      .returning();
+    }).where(eq(products.id, id)).returning();
 
-    logger.info(`Chegirma qo'yildi. ID: ${id}, Yangi narx: ${newDiscountPrice}`);
-    
-    // Socket orqali hammaga (Kassirga) yangi narxni yuboramiz
-    try { getIO().emit("product_update", updatedProduct); } catch (e) {}
-
+    try { getIO().emit("product_updated", updatedProduct); } catch (e) { /* ignore */ }
     return updatedProduct;
   },
 
+  // 5. REMOVE DISCOUNT
   removeDiscount: async (id: number) => {
-    const [updatedProduct] = await db
-      .update(products)
-      .set({
-        discountPrice: null,
-        discountStart: null,
-        discountEnd: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(products.id, id))
-      .returning();
+    const [updatedProduct] = await db.update(products).set({
+        discountPrice: null, discountStart: null, discountEnd: null, updatedAt: new Date(),
+    }).where(eq(products.id, id)).returning();
 
+    if (!updatedProduct) throw new ApiError(404, "Mahsulot topilmadi");
+    try { getIO().emit("product_updated", updatedProduct); } catch (e) { /* ignore */ }
     return updatedProduct;
   },
 
-  // 4. SOFT DELETE
+  // 6. DELETE
   delete: async (id: number) => {
-    const [deleted] = await db
-      .update(products)
-      .set({
-        isDeleted: true,
-        updatedAt: new Date()
-      })
-      .where(and(eq(products.id, id), eq(products.isDeleted, false)))
+    const [deleted] = await db.update(products)
+      .set({ isDeleted: true, isActive: false, updatedAt: new Date() })
+      .where(eq(products.id, id))
       .returning();
 
     if (!deleted) throw new ApiError(404, "Mahsulot topilmadi");
-
-    logger.info(`Mahsulot o'chirildi (Soft Delete). ID: ${id}`);
-    try {
-      getIO().emit("product_delete", { id });
-    } catch (e) { console.error("Socket error:", e); }
-
+    try { getIO().emit("product_deleted", { id }); } catch (e) { /* ignore */ }
     return deleted;
   },
 
-  // 5. ADD STOCK (Kirim qilish + Tarix)
-  addStock: async (id: number, quantity: number, newPrice?: number, userId?: number) => {
+  // 7. ADD STOCK
+  addStock: async (id: number, quantity: number, newPrice: number | undefined, userId: number) => {
     return await db.transaction(async (tx) => {
-      const product = await tx.query.products.findFirst({
-        where: eq(products.id, id)
-      });
-
+      const product = await tx.query.products.findFirst({ where: eq(products.id, id) });
       if (!product) throw new ApiError(404, "Mahsulot topilmadi");
 
-      const currentStock = Number(product.stock);
-      const newStock = currentStock + quantity;
+      const oldStock = Number(product.stock);
+      const newStock = oldStock + quantity;
+      
+      const updateData: Partial<typeof products.$inferInsert> = { stock: String(newStock), updatedAt: new Date() };
+      if (newPrice && newPrice > 0) updateData.price = String(newPrice);
 
-      const updateData: any = {
-        stock: String(newStock),
-        updatedAt: new Date(),
-      };
+      const [updatedProduct] = await tx.update(products).set(updateData).where(eq(products.id, id)).returning();
 
-      if (newPrice !== undefined && newPrice > 0) {
-        updateData.price = String(newPrice);
-      }
-
-      // Products jadvalini yangilash
-      const [updatedProduct] = await tx
-        .update(products)
-        .set(updateData)
-        .where(eq(products.id, id))
-        .returning();
-
-      // Tarixga yozish
       await tx.insert(stockHistory).values({
         productId: id,
         quantity: String(quantity),
-        oldStock: String(currentStock),
+        oldStock: String(oldStock),
         newStock: String(newStock),
         newPrice: newPrice ? String(newPrice) : null,
-        addedBy: userId || null,
-        note: "Qo'shimcha kirim (Add Stock)",
+        addedBy: userId,
+        note: "Qo'shimcha kirim",
       });
 
-      logger.info(`Mahsulot kirim qilindi. ID: ${id}, +${quantity}`);
       try {
-        getIO().emit("product_update", updatedProduct);
-      } catch (e) { console.error("Socket error:", e); }
+         getIO().emit("stock_update", { id, newStock });
+         getIO().emit("product_updated", updatedProduct);
+      } catch (e) { /* ignore */ }
 
       return updatedProduct;
     });
-  }
+  },
+    // 8. GET TRENDING (Eng ko'p sotilgan)
+  getTrending: async (limit: number = 20) => {
+    const trendingRaw: any = await db.execute(sql`
+      SELECT 
+        p.*,
+        c.name as "categoryName",
+        COALESCE(SUM(oi.quantity), 0) as "totalSold"
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN order_items oi ON p.id = oi.product_id
+      LEFT JOIN orders o ON oi.order_id = o.id AND o.status = 'completed'
+      WHERE p.is_active = true AND p.is_deleted = false
+      GROUP BY p.id, c.name
+      ORDER BY COALESCE(SUM(oi.quantity), 0) DESC, p.created_at DESC
+      LIMIT ${limit}
+    `);
+
+    return trendingRaw.rows || trendingRaw;
+  },
+
+  // 9. QUICK SEARCH (Barcode yoki nom bo'yicha)
+  quickSearch: async (query: string, limit: number = 10) => {
+    if (!query || query.length < 2) return [];
+
+    const results = await db.query.products.findMany({
+      where: and(
+        eq(products.isActive, true),
+        eq(products.isDeleted, false),
+        or(
+          ilike(products.name, `%${query}%`),
+          ilike(products.barcode, `%${query}%`)
+        )
+      ),
+      limit,
+      orderBy: desc(products.createdAt),
+      with: { category: true }
+    });
+
+    return results;
+  },
 };
+

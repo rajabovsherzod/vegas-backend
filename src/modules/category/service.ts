@@ -1,49 +1,91 @@
 import { db } from "@/db";
 import { categories } from "@/db/schema";
-import { eq, desc, ilike, or, SQL } from "drizzle-orm";
+import { eq, desc, ilike, or, and, sql, SQL } from "drizzle-orm";
 import ApiError from "@/utils/ApiError";
-// Importni to'g'riladik, endi u validation.ts faylidan keladi!
+import logger from "@/utils/logger";
+import { getIO } from "@/socket";
 import { CreateCategoryInput, UpdateCategoryInput } from "./validation";
 
-// Category uchun Service mantiqi
+interface GetAllCategoriesQuery {
+  search?: string;
+  limit?: string;
+  page?: string;
+}
+
 export const categoryService = {
   // 1. GET ALL
-  getAll: async (query: any) => {
-    const { search } = query;
+  getAll: async (query: GetAllCategoriesQuery = {}) => {
+    const { search, limit = "20", page = "1" } = query;
+    const limitNum = Number(limit);
+    const pageNum = Number(page);
+    const offsetNum = (pageNum - 1) * limitNum;
 
-    const conditions: SQL[] = [];
-
-    // Faqat active va deleted bo'lmagan kategoriyalarni ko'rsatish
-    conditions.push(eq(categories.isActive, true));
-    conditions.push(eq(categories.isDeleted, false));
+    const conditions: (SQL | undefined)[] = [
+      eq(categories.isActive, true),
+      eq(categories.isDeleted, false),
+    ];
 
     if (search) {
-      conditions.push(ilike(categories.name, `%${search}%`));
+      conditions.push(
+        or(
+          ilike(categories.name, `%${search}%`),
+          ilike(categories.description, `%${search}%`)
+        )
+      );
     }
 
+    const finalConditions = and(...conditions.filter((c): c is SQL => !!c));
+
     const data = await db.query.categories.findMany({
-      where: (table, { and }) => and(...conditions),
-      orderBy: desc(categories.id),
+      where: finalConditions,
+      limit: limitNum,
+      offset: offsetNum,
+      orderBy: desc(categories.createdAt),
     });
 
-    return data;
+    const totalRes = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(categories)
+      .where(finalConditions);
+    const total = Number(totalRes[0].count);
+
+    return {
+      categories: data,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+      },
+    };
   },
 
-  // 2. CREATE (Yaratish)
+  // 2. CREATE
   create: async (payload: CreateCategoryInput) => {
-    // ... (Logika)
     const existing = await db.query.categories.findFirst({
       where: eq(categories.name, payload.name),
     });
-    if (existing) throw new ApiError(409, "Bu nomdagi kategoriya allaqachon mavjud");
+    if (existing)
+      throw new ApiError(409, "Bu nomdagi kategoriya allaqachon mavjud");
 
-    const [newCategory] = await db.insert(categories).values(payload).returning();
+    const [newCategory] = await db
+      .insert(categories)
+      .values(payload)
+      .returning();
+
+    logger.info(`Yangi kategoriya: ${newCategory.name}`);
+
+    try {
+      getIO().emit("category_updated", newCategory);
+    } catch (e) {
+      /* ignore */
+    }
+
     return newCategory;
   },
 
-  // 3. UPDATE (Yangilash)
+  // 3. UPDATE
   update: async (id: number, payload: UpdateCategoryInput) => {
-    // ... (Logika)
     if (payload.name) {
       const existing = await db.query.categories.findFirst({
         where: eq(categories.name, payload.name),
@@ -53,42 +95,46 @@ export const categoryService = {
       }
     }
 
-    const updatedCategory = await db
+    const [updatedCategory] = await db
       .update(categories)
-      .set({
-        ...payload,
-        updatedAt: new Date(),
-      })
+      .set({ ...payload, updatedAt: new Date() })
       .where(eq(categories.id, id))
       .returning();
 
-    if (!updatedCategory.length) throw new ApiError(404, "Kategoriya topilmadi");
-    return updatedCategory[0];
+    if (!updatedCategory) throw new ApiError(404, "Kategoriya topilmadi");
+
+    try {
+      getIO().emit("category_updated", updatedCategory);
+    } catch (e) {
+      /* ignore */
+    }
+
+    return updatedCategory;
   },
 
+  // 4. GET BY ID
   getById: async (id: number) => {
     const data = await db.query.categories.findFirst({
       where: eq(categories.id, id),
     });
-    if (!data) {
-      throw new ApiError(404, "Kategoriya topilmadi");
-    }
+    if (!data) throw new ApiError(404, "Kategoriya topilmadi");
     return data;
   },
 
-  // 4. DELETE (Soft Delete)
+  // 5. DELETE (Soft)
   delete: async (id: number) => {
     const [deleted] = await db
       .update(categories)
-      .set({
-        isDeleted: true,
-        updatedAt: new Date()
-      })
+      .set({ isDeleted: true, updatedAt: new Date() })
       .where(eq(categories.id, id))
       .returning();
 
-    if (!deleted) {
-      throw new ApiError(404, "Kategoriya topilmadi");
+    if (!deleted) throw new ApiError(404, "Kategoriya topilmadi");
+
+    try {
+      getIO().emit("category_updated", { id, deleted: true });
+    } catch (e) {
+      /* ignore */
     }
 
     return deleted;

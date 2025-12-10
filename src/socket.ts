@@ -7,7 +7,7 @@ let io: Server;
 export const initSocket = (httpServer: HttpServer) => {
   io = new Server(httpServer, {
     cors: {
-      origin: "*", // Yoki ["http://localhost:3000"] - xavfsizlik uchun
+      origin: "*", 
       methods: ["GET", "POST"],
     },
   });
@@ -15,21 +15,27 @@ export const initSocket = (httpServer: HttpServer) => {
   io.on("connection", (socket: Socket) => {
     logger.info(`🔌 Yangi ulanish (Socket): ${socket.id}`);
 
-    // Adminlar kirganda "admin_room"ga qo'shamiz
-    socket.on("join_admin", () => {
-      socket.join("admin_room");
-      logger.info(`Socket ${socket.id} admin xonasiga qo'shildi`);
+    // 🔥 O'ZGARTIRILDI: Admin emas, "Kassirlar xonasi" (cashier_room)
+    // Bu xonaga Cashier ham, Admin ham, Owner ham ulanadi.
+    socket.on("join_cashier", () => {
+      socket.join("cashier_room");
+      logger.info(`Socket ${socket.id} kassirlar xonasi (cashier_room)ga qo'shildi`);
+    });
+
+    // Sellerlar uchun alohida xona (Kelajakda kerak bo'lishi mumkin)
+    socket.on("join_seller", () => {
+      socket.join("seller_room");
+      logger.info(`Socket ${socket.id} seller xonasiga qo'shildi`);
     });
 
     // QR Scan event (Test rejimi)
     socket.on("qr-scan", (data) => {
       logger.info(`📱 QR Scan qilindi: ${data.qrData}`);
-      // Barcha ulangan clientlarga broadcast qilish
       io.emit("qr-scan-broadcast", data);
     });
 
     socket.on("disconnect", () => {
-      // logger.info(`❌ Ulanish uzildi: ${socket.id}`);
+       // logger.info(`❌ Ulanish uzildi: ${socket.id}`);
     });
   });
 

@@ -9,6 +9,7 @@ import statsRoutes from "@/modules/stats/routes";
 import logsRoutes from "@/modules/logs/routes";
 import stockHistoryRoutes from "@/modules/stock-history/routes";
 import qrTestRoutes from "@/modules/qr-test/routes";
+import refundRoutes from "@/modules/order/refund.routes";
 
 const router = Router();
 
@@ -22,6 +23,7 @@ router.use("/stats", statsRoutes);
 router.use("/logs", logsRoutes);
 router.use("/stock-history", stockHistoryRoutes);
 router.use("/qr-test", qrTestRoutes);
+router.use("/refunds", refundRoutes);
 
 router.use("/stock-history", stockHistoryRoutes);
 router.use("/qr-test", qrTestRoutes);

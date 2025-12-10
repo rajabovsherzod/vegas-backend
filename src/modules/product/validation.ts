@@ -1,68 +1,63 @@
 import { z } from "zod";
 
-// Create uchun qoidalar
 export const createProductSchema = z.object({
   body: z.object({
-    name: z.string().min(2, { message: "Nom kamida 2 ta belgi bo'lishi kerak" }),
+    name: z.string().min(3),
+    barcode: z.string().optional(),
+    // 🔥 FIX: String yoki Number kelsa ham qabul qiladi
+    price: z.string().or(z.number()), 
+    stock: z.string().or(z.number()).optional(),
+    unit: z.string().default("dona"),
+    currency: z.enum(["UZS", "USD"]).default("UZS"),
     categoryId: z.number().optional(),
     
-    // Coerce: Agar string kelsa ham numberga o'giradi ("100" -> 100)
-    price: z.coerce.number().min(0),
-    stock: z.coerce.number().default(0),
-    originalPrice: z.coerce.number().optional(), // Qo'shildi
+    // 🔥 BU IKKALASI YETISHMAYOTGAN EDI:
+    originalPrice: z.string().or(z.number()).optional(),
+    discountPrice: z.string().or(z.number()).optional(),
     
-    unit: z.string().default("dona"),
-    barcode: z.string().min(1, { message: "Barkod kiritish majburiy" }),
-    currency: z.enum(["UZS", "USD"]).default("UZS"),
-    isActive: z.boolean().optional().default(true),
+    image: z.string().optional(),
   }),
 });
 
-// Update uchun qoidalar
 export const updateProductSchema = z.object({
   body: z.object({
-    name: z.string().min(2).optional(),
-    categoryId: z.number().optional(),
-    price: z.coerce.number().optional(),
-    stock: z.coerce.number().optional(),
-    originalPrice: z.coerce.number().optional(),
+    name: z.string().min(3).optional(),
+    barcode: z.string().optional(),
+    price: z.string().or(z.number()).optional(),
+    // stock update orqali o'zgarmaydi (faqat addStock)
     unit: z.string().optional(),
-    barcode: z.string().min(1).optional(),
     currency: z.enum(["UZS", "USD"]).optional(),
+    categoryId: z.number().optional(),
+    
+    // 🔥 UPDATE GA HAM QO'SHAMIZ
+    originalPrice: z.string().or(z.number()).optional(),
+    discountPrice: z.string().or(z.number()).optional(),
+    
+    image: z.string().optional(),
     isActive: z.boolean().optional(),
-    isDeleted: z.boolean().optional(),
   }),
 });
 
-// Stock qo'shish uchun
 export const addStockSchema = z.object({
   body: z.object({
-    quantity: z.coerce.number().min(0.01, "Miqdor noto'g'ri"),
-    newPrice: z.coerce.number().optional()
-  })
+    quantity: z.string().or(z.number()),
+    newPrice: z.string().or(z.number()).optional(),
+  }),
 });
 
 export const setDiscountSchema = z.object({
   body: z.object({
-    // Foizda kiritishi mumkin (masalan 10%)
-    percent: z.number().min(1).max(100).optional(),
-    
-    // Yoki aniq summa (masalan 9000 so'm qilib qo'yish)
-    fixedPrice: z.number().min(0).optional(),
-    
-    // Qachondan (default: hozirdan)
-    startDate: z.string().or(z.date()).optional(),
-    
-    // Qachongacha (Majburiy)
-    endDate: z.string().or(z.date()),
+    percent: z.number().optional(),
+    fixedPrice: z.number().optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().refine((date) => new Date(date).toString() !== 'Invalid Date', {
+        message: "Tugash sanasi noto'g'ri",
+    }),
   }).refine((data) => data.percent || data.fixedPrice, {
-    message: "Foiz yoki aniq summa kiritilishi shart",
-    path: ["percent"],
+      message: "Foiz yoki Aniq narx kiritilishi shart",
   }),
 });
 
-// Tiplarni export qilamiz
 export type CreateProductInput = z.infer<typeof createProductSchema>["body"];
 export type UpdateProductInput = z.infer<typeof updateProductSchema>["body"];
-export type AddStockInput = z.infer<typeof addStockSchema>["body"];
 export type SetDiscountInput = z.infer<typeof setDiscountSchema>["body"];
