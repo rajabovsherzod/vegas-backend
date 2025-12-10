@@ -65,7 +65,9 @@ export const orderService = {
 
         stockChanges.push({ id: product.id, quantity: requestQty });
 
-        const originalPrice = Number(product.price);
+        const originalPrice = product.currency === 'USD' 
+        ? Number(product.sellingPriceUsd) 
+        : Number(product.sellingPriceUzs);
         let soldPrice = item.price !== undefined ? Number(item.price) : originalPrice;
 
         if (item.price === undefined && Number(product.discountPrice) > 0) {
@@ -278,7 +280,9 @@ export const orderService = {
             throw new ApiError(409, `Omborda yetarli emas: ${product.name}`);
         }
 
-        const originalPrice = Number(product.price);
+        const originalPrice = product.currency === 'USD' 
+        ? Number(product.sellingPriceUsd) 
+        : Number(product.sellingPriceUzs);
         let soldPrice = newItem.price !== undefined ? Number(newItem.price) : originalPrice;
 
         if (newItem.price === undefined && Number(product.discountPrice) > 0) {

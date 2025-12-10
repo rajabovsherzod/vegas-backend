@@ -94,19 +94,25 @@ export const products = pgTable('products', {
   barcode: varchar('barcode', { length: 100 }).unique(),
   categoryId: integer('category_id').references(() => categories.id),
   
-  price: decimal('price', { precision: 15, scale: 2 }).notNull(),
-  
-  discountPrice: decimal('discount_price', { precision: 15, scale: 2 }), 
+  // Kelish narxlari (tannarx)
+  incomingPriceUzs: decimal('incoming_price_uzs', { precision: 15, scale: 2 }).default('0'),
+  incomingPriceUsd: decimal('incoming_price_usd', { precision: 15, scale: 2 }).default('0'),
+
+  // Sotish narxlari (asl narx)
+  sellingPriceUzs: decimal('selling_price_uzs', { precision: 15, scale: 2 }).default('0').notNull(),
+  sellingPriceUsd: decimal('selling_price_usd', { precision: 15, scale: 2 }).default('0').notNull(),
+
+  // Chegirma (vaqtinchalik)
+  discountPrice: decimal('discount_price', { precision: 15, scale: 2 }),
   discountStart: timestamp('discount_start'), 
   discountEnd: timestamp('discount_end'),     
 
-  originalPrice: decimal('original_price', { precision: 15, scale: 2 }), 
-  
-  currency: currencyEnum('currency').default('UZS').notNull(),
   stock: decimal('stock', { precision: 10, scale: 2 }).default('0'),
   unit: varchar('unit', { length: 20 }).default('dona'),
   image: text('image'),
-  
+
+  currency: currencyEnum('currency').default('UZS').notNull(),
+
   isActive: boolean('is_active').default(true),
   isDeleted: boolean('is_deleted').default(false),
   createdAt: timestamp('created_at').defaultNow(),
@@ -115,7 +121,6 @@ export const products = pgTable('products', {
   barcodeIdx: index('products_barcode_idx').on(table.barcode),
   nameIdx: index('products_name_idx').on(table.name),
 }));
-
 // ---------------------------
 // 6. NARXLAR TARIXI (O'ZGARTIRILDI)
 // ---------------------------

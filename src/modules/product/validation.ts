@@ -4,17 +4,21 @@ export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(3),
     barcode: z.string().optional(),
-    // 🔥 FIX: String yoki Number kelsa ham qabul qiladi
-    price: z.string().or(z.number()), 
+    
+    // Yangi narx maydonlari
+    sellingPriceUzs: z.string().or(z.number()).optional(),
+    sellingPriceUsd: z.string().or(z.number()).optional(),
+    incomingPriceUzs: z.string().or(z.number()).optional(),
+    incomingPriceUsd: z.string().or(z.number()).optional(),
+    
+    // Frontend uchun (backward compatibility)
+    price: z.string().or(z.number()).optional(),
+    
     stock: z.string().or(z.number()).optional(),
     unit: z.string().default("dona"),
     currency: z.enum(["UZS", "USD"]).default("UZS"),
     categoryId: z.number().optional(),
-    
-    // 🔥 BU IKKALASI YETISHMAYOTGAN EDI:
-    originalPrice: z.string().or(z.number()).optional(),
     discountPrice: z.string().or(z.number()).optional(),
-    
     image: z.string().optional(),
   }),
 });
@@ -23,16 +27,20 @@ export const updateProductSchema = z.object({
   body: z.object({
     name: z.string().min(3).optional(),
     barcode: z.string().optional(),
+    
+    // Yangi narx maydonlari
+    sellingPriceUzs: z.string().or(z.number()).optional(),
+    sellingPriceUsd: z.string().or(z.number()).optional(),
+    incomingPriceUzs: z.string().or(z.number()).optional(),
+    incomingPriceUsd: z.string().or(z.number()).optional(),
+    
+    // Frontend uchun (backward compatibility)
     price: z.string().or(z.number()).optional(),
-    // stock update orqali o'zgarmaydi (faqat addStock)
+    
     unit: z.string().optional(),
     currency: z.enum(["UZS", "USD"]).optional(),
     categoryId: z.number().optional(),
-    
-    // 🔥 UPDATE GA HAM QO'SHAMIZ
-    originalPrice: z.string().or(z.number()).optional(),
     discountPrice: z.string().or(z.number()).optional(),
-    
     image: z.string().optional(),
     isActive: z.boolean().optional(),
   }),
@@ -41,7 +49,10 @@ export const updateProductSchema = z.object({
 export const addStockSchema = z.object({
   body: z.object({
     quantity: z.string().or(z.number()),
-    newPrice: z.string().or(z.number()).optional(),
+    // Yangi narx (ixtiyoriy) - UZS va USD
+    newSellingPriceUzs: z.string().or(z.number()).optional(),
+    newSellingPriceUsd: z.string().or(z.number()).optional(),
+    newPrice: z.string().or(z.number()).optional(), // backward compatibility
   }),
 });
 

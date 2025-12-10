@@ -11,7 +11,9 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "seed": "tsx src/db/seed.ts",
-    "create-superadmin": "tsx src/db/create-superadmin.ts"
+    "create-superadmin": "tsx src/db/create-superadmin.ts",
+    "seed:categories": "npx tsx seeds/import-categories.ts",
+    "seed:products": "npx tsx seeds/import-products.ts"
   },
   "keywords": [],
   "author": "",
@@ -30,6 +32,7 @@
     "postgres": "^3.4.7",
     "socket.io": "^4.8.1",
     "winston": "^3.18.3",
+    "xlsx": "^0.18.5",
     "zod": "^4.1.13"
   },
   "devDependencies": {

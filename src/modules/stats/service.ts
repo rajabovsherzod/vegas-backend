@@ -67,7 +67,7 @@ export const statsService = {
     // 5. Ombor qiymati (barcha mahsulotlar narxi * stock)
     const [inventoryValue] = await db
       .select({
-        totalValue: sql<string>`sum(${products.price} * ${products.stock})`
+        totalValue: sql<string>`sum(${products.sellingPriceUzs} * ${products.stock})`
       })
       .from(products)
       .where(
